@@ -87,45 +87,57 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+with st.sidebar.expander("API 키 설정", expanded=not all([WEATHER_API_KEY, EXCHANGE_API_KEY, KAKAO_REST_KEY, KAKAO_JS_KEY])):
+    st.caption(".env 키가 없을 때 현재 세션에서 사용할 키를 입력하세요.")
+    manual_weather_key = st.text_input("OpenWeather API 키", value=WEATHER_API_KEY or "", type="password", key="manual_weather_api_key")
+    manual_exchange_key = st.text_input("환율 API 키", value=EXCHANGE_API_KEY or "", type="password", key="manual_exchange_api_key")
+    manual_kakao_rest_key = st.text_input("Kakao REST API 키", value=KAKAO_REST_KEY or "", type="password", key="manual_kakao_rest_api_key")
+    manual_kakao_js_key = st.text_input("Kakao JavaScript 키", value=KAKAO_JS_KEY or "", type="password", key="manual_kakao_js_api_key")
+
+WEATHER_API_KEY = manual_weather_key.strip() or WEATHER_API_KEY
+EXCHANGE_API_KEY = manual_exchange_key.strip() or EXCHANGE_API_KEY
+KAKAO_REST_KEY = manual_kakao_rest_key.strip() or KAKAO_REST_KEY
+KAKAO_JS_KEY = manual_kakao_js_key.strip() or KAKAO_JS_KEY
+
 
 @st.cache_data(ttl=600)
-def fetch_weather(city: str):
-    if not WEATHER_API_KEY:
+def fetch_weather(city: str, api_key: str):
+    if not api_key:
         return 0, {"message": "OPENWEATHER_API_KEY가 설정되지 않았습니다."}
     try:
-        response = requests.get("https://api.openweathermap.org/data/2.5/weather", params={"q": city, "appid": WEATHER_API_KEY, "units": "metric", "lang": "kr"}, timeout=8)
+        response = requests.get("https://api.openweathermap.org/data/2.5/weather", params={"q": city, "appid": api_key, "units": "metric", "lang": "kr"}, timeout=8)
         return response.status_code, response.json()
     except requests.RequestException as error:
         return 0, {"message": str(error)}
 
 
 @st.cache_data(ttl=600)
-def fetch_rates():
-    if not EXCHANGE_API_KEY:
+def fetch_rates(api_key: str):
+    if not api_key:
         return 0, {"message": "EXCHANGERATE_API_KEY가 설정되지 않았습니다."}
     try:
-        response = requests.get(f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD", timeout=8)
+        response = requests.get(f"https://v6.exchangerate-api.com/v6/{api_key}/latest/USD", timeout=8)
         return response.status_code, response.json()
     except requests.RequestException as error:
         return 0, {"message": str(error)}
 
 
 @st.cache_data(ttl=600)
-def kakao_places(query: str):
-    if not KAKAO_REST_KEY:
+def kakao_places(query: str, api_key: str):
+    if not api_key:
         return []
     try:
-        response = requests.get("https://dapi.kakao.com/v2/local/search/keyword.json", headers={"Authorization": f"KakaoAK {KAKAO_REST_KEY}"}, params={"query": query, "size": 8}, timeout=8)
+        response = requests.get("https://dapi.kakao.com/v2/local/search/keyword.json", headers={"Authorization": f"KakaoAK {api_key}"}, params={"query": query, "size": 8}, timeout=8)
         return response.json().get("documents", []) if response.status_code == 200 else []
     except requests.RequestException:
         return []
 
 
 @st.cache_data(ttl=600)
-def kakao_category_places(query: str):
+def kakao_category_places(query: str, api_key: str):
     return {
-        "관광지": kakao_places(f"{query} 관광지") or [],
-        "식당": kakao_places(f"{query} 맛집") or [],
+        "관광지": kakao_places(f"{query} 관광지", api_key) or [],
+        "식당": kakao_places(f"{query} 맛집", api_key) or [],
     }
 
 
@@ -171,7 +183,7 @@ def city_info_from_search(query: str, active_type: str):
         if normalized_query.casefold() in {city_name.casefold(), known_info["query"].casefold()}:
             return known_info.copy()
 
-    weather_status, weather = fetch_weather(query)
+    weather_status, weather = fetch_weather(query, WEATHER_API_KEY)
     code = weather.get("sys", {}).get("country", "") if weather_status == 200 else ""
     country, currency = COUNTRY_INFO.get(code, (code or "검색 지역", "USD"))
     if active_type == "국내":
@@ -312,22 +324,30 @@ def render_place_group(title: str, places: list[dict], limit: int = 4):
 
 
 def render_results(city_name: str, info: dict):
+    center = None
     if info["type"] == "해외":
         place_groups, center = osm_places(info["query"])
         if center is None and info["query"] in OSM_FALLBACK_COORDS:
             lat, lon = OSM_FALLBACK_COORDS[info["query"]]
             center = {"lat": lat, "lon": lon, "name": city_name}
     else:
-        place_groups = kakao_category_places(info["query"])
-        all_places = flatten_places(place_groups)
-        center = all_places[0] if all_places and "x" in all_places[0] and "y" in all_places[0] else None
+        place_groups = kakao_category_places(info["query"], KAKAO_REST_KEY)
 
-    weather_status, weather_data = fetch_weather(info["query"])
-    rate_status, rates_data = fetch_rates()
+    weather_status, weather_data = fetch_weather(info["query"], WEATHER_API_KEY)
+    rate_status, rates_data = fetch_rates(EXCHANGE_API_KEY)
     provider = "OpenStreetMap" if info["type"] == "해외" else "Kakao Map"
     st.markdown(f'<div class="result-head"><div><div class="eyebrow">Your destination</div><h2>{city_name}, {info["country"]}</h2></div><p>{info["type"]} · {provider}</p></div>', unsafe_allow_html=True)
     render_compact_summary(city_name, info, weather_status, weather_data, rate_status, rates_data)
     render_exchange_calculator(info, rate_status, rates_data)
+    if center is None:
+        all_places = flatten_places(place_groups)
+        if info["type"] == "해외":
+            coordinate_place = next((place for place in all_places if "lat" in place and "lon" in place), None)
+            if coordinate_place:
+                center = {"lat": coordinate_place["lat"], "lon": coordinate_place["lon"], "name": city_name}
+        else:
+            kakao_place = next((place for place in all_places if "x" in place and "y" in place), None)
+            center = kakao_place
 
     left, right = st.columns([1.1, 1.35], gap="large")
     with left:
