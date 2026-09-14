@@ -6,3 +6,6 @@ plotly
 python-dotenv
 requests
 seaborn
+openai
+pypdf
+folium
