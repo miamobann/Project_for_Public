@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ cocktail.name }} - Recommendation</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="result-page">
+    <nav class="top-nav">
+        <span>MOOD: "{{ mood }}"</span>
+        <a href="/" class="nav-link">다시 기록하기</a>
+    </nav>
+
+    <main class="result-container">
+        <header class="brand-header">
+            <h1><strong>BAR</strong> pours stories (and drinks).</h1>
+        </header>
+
+        <div class="image-wrapper">
+            <img src="{{ cocktail.image }}" alt="{{ cocktail.name }}" class="cocktail-img">
+        </div>
+
+        <section class="cocktail-detail">
+            <h2 class="cocktail-title">{{ cocktail.name }}</h2>
+            <p class="cocktail-category">{{ cocktail.category }} / {{ cocktail.glass }}</p>
+            
+            <p class="recommend-reason">
+                "{{ reason }}"
+            </p>
+
+            <div class="recipe-box">
+                <h4>Ingredients</h4>
+                <ul class="ingredient-list">
+                    {% for item in cocktail.ingredients %}
+                        <li>{{ item }}</li>
+                    {% endfor %}
+                </ul>
+
+                <h4>Instructions</h4>
+                <p class="instructions-text">{{ cocktail.instructions }}</p>
+            </div>
+
+            <div class="action-footer">
+                <a href="/" class="btn-retry">다른 기분 입력하기</a>
+            </div>
+        </section>
+    </main>
+</body>
+</html>
