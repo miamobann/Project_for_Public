@@ -9,17 +9,9 @@ load_dotenv()
 
 app = Flask(__name__)
 
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key or api_key == "YOUR_OPENAI_API_KEY":
-    raise ValueError(
-        ".env 파일에 올바른 OPENAI_API_KEY가 설정되지 않았습니다."
-    )
-
-client = OpenAI(api_key=api_key)
-
+ENV_API_KEY = os.getenv("OPENAI_API_KEY", "")
 COCKTAIL_API_URL = "https://www.thecocktaildb.com/api/json/v1/1/search.php"
 
-# 선택용 기본 칵테일 목록 (TheCocktailDB 검색 검증 완료 목록)
 POPULAR_COCKTAILS = [
     "Mojito",
     "Old Fashioned",
@@ -38,7 +30,15 @@ POPULAR_COCKTAILS = [
 ]
 
 
-def get_recommendation_from_openai(mood_text: str):
+def get_openai_client(custom_key: str = None):
+    """사용자 입력 키를 최우선으로, 없으면 .env 키를 사용"""
+    final_key = custom_key.strip() if custom_key else ENV_API_KEY
+    if not final_key or final_key == "YOUR_OPENAI_API_KEY":
+        return None
+    return OpenAI(api_key=final_key)
+
+
+def get_recommendation_from_openai(client: OpenAI, mood_text: str):
     prompt = f"""
 사용자가 다음과 같은 기분이나 상황을 입력했습니다:
 "{mood_text}"
@@ -67,15 +67,15 @@ def get_recommendation_from_openai(mood_text: str):
     return json.loads(response.choices[0].message.content)
 
 
-def get_mood_from_cocktail(cocktail_name: str):
+def get_mood_from_cocktail(client: OpenAI, cocktail_name: str):
     prompt = f"""
 칵테일 이름: "{cocktail_name}"
 
-이 칵테일의 풍미, 도수, 역사, 분위기를 고려했을 때, 어떤 기분이나 상황에 마시는 것이 가장 어울리는지 감성적으로 설명해 주세요.
+이 칵테일의 풍미, 도수, 분위기를 고려했을 때, 어떤 기분이나 상황에 마시는 것이 가장 어울리는지 감성적으로 설명해 주세요.
 
 반드시 아래 JSON 포맷으로만 응답하세요:
 {{
-    "suggested_mood": "어울리는 대표 기분 키워드 (예: 차분하게 하루를 정리하고 싶은 밤, 지친 일상을 벗어나 산뜻한 환기가 필요한 순간)",
+    "suggested_mood": "어울리는 대표 기분 키워드",
     "reason": "이 칵테일이 왜 해당 기분에 어울리는지에 대한 감성적인 바텐더의 설명 (한국어 2문장 내외)"
 }}
 """
@@ -105,7 +105,6 @@ def fetch_cocktail_details(cocktail_name: str):
         return None
 
     drink = data["drinks"][0]
-
     ingredients = []
     for i in range(1, 16):
         ing = drink.get(f"strIngredient{i}")
@@ -132,11 +131,14 @@ def index():
 @app.route("/recommend", methods=["POST"])
 def recommend():
     mood = request.form.get("mood", "").strip()
-    if not mood:
+    custom_key = request.form.get("custom_api_key", "").strip()
+
+    client = get_openai_client(custom_key)
+    if not client:
         return redirect(url_for("index"))
 
     try:
-        rec_data = get_recommendation_from_openai(mood)
+        rec_data = get_recommendation_from_openai(client, mood)
         cocktail_info = fetch_cocktail_details(rec_data["cocktail_name"])
 
         if not cocktail_info:
@@ -157,11 +159,14 @@ def recommend():
 @app.route("/recommend-by-cocktail", methods=["POST"])
 def recommend_by_cocktail():
     cocktail_name = request.form.get("cocktail_name", "").strip()
-    if not cocktail_name:
+    custom_key = request.form.get("custom_api_key", "").strip()
+
+    client = get_openai_client(custom_key)
+    if not client:
         return redirect(url_for("index"))
 
     try:
-        mood_data = get_mood_from_cocktail(cocktail_name)
+        mood_data = get_mood_from_cocktail(client, cocktail_name)
         cocktail_info = fetch_cocktail_details(cocktail_name)
 
         if not cocktail_info:
